@@ -1,0 +1,3 @@
+/Users/jianglai/CLionProjects/RISC-V/cmake-build-debug/CMakeFiles/rebuild_cache.dir
+/Users/jianglai/CLionProjects/RISC-V/cmake-build-debug/CMakeFiles/edit_cache.dir
+/Users/jianglai/CLionProjects/RISC-V/cmake-build-debug/CMakeFiles/RISC_V.dir
