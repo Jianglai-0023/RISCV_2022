@@ -373,7 +373,10 @@ private:
     IDResult getopt() {
         //write into RS&ROB&LSB
         u32 point = PC;
-//        if(clk>30000)std::cout << std::hex << PC<< std::endl;
+//        std::cout << std::hex << PC<< std::endl;
+//        cout << issue_halt << "**" << endl;
+//        cout << clk << "$$" << endl;
+//        if(clk==9584)exit(0);
 
         u32 so = u32(Memory[point]) + (u32(Memory[point + 1]) << 8) + (u32(Memory[point + 2]) << 16) +
                  (u32(Memory[point + 3]) << 24);
@@ -456,6 +459,7 @@ private:
     };
 
     queue<ROBnode> preROB;
+
     queue<ROBnode> nowROB;
 
     int rob_get_issue(IDResult op) {
@@ -557,6 +561,7 @@ private:
             }
         }
         else if (op.opt >= LB && op.opt <= SW) {//for mem
+            if(op.opt>=LB&&op.opt<=LHU)node.reorder=reorder+256;
             node.Vk = op.imm;
             if (pre_rename[u32(op.rs1)]==-1){
                 node.Vj = pre_register[u32(op.rs1)];
@@ -620,7 +625,9 @@ private:
         bool ready = false;
         bool isdelete = false;
     };
+
     queue<LSnode> preLS;
+
     queue<LSnode> nowLS;
 
     void ls_clear(queue<LSnode> &ls) {
@@ -641,7 +648,7 @@ private:
         if (op.opt < LB || op.opt > SW)return;
         if (op.opt >= LB && op.opt <= LHU) {
             node.isload = true;
-            node.Qj = reorder;
+            node.Qj = reorder+256;
             node.ready = true;
         } else {
             node.Qj = reorder;
@@ -805,6 +812,7 @@ private:
         }
         if(i==RS_SIZE)nowALU.opt=NONE;
     }
+
     void rs_listen() {
         //branch
         if(preALU.reorder==-1)return;
@@ -845,6 +853,7 @@ private:
     }
 
     void lsb_listen(){
+        if(preALU.opt == NONE) return;
         if(preALU.reorder==-1)return;
 //        cout << "lsblisten"<<preALU.reorder <<' '<<preALU.value<<endl;
         for(int i = (preLS.front+1)%preLS.maxSize;i!=(preLS.rear+1)%preLS.maxSize;i=(i+1)%preLS.maxSize){
@@ -864,7 +873,7 @@ private:
 
     void rob_listen(){
         // cout << "rob listen " << ' ' << preALU.reorder<<' '<<PP[preALU.opt] << ' ';
-
+        if(preALU.opt == NONE) return;
         if(preALU.reorder!=-1){
             if(preROB.a[preALU.reorder].opt==JALR||preROB.a[preALU.reorder].opt==JAL){
                 return;
@@ -918,7 +927,6 @@ public:
 
     void run() {
         OPT opt=ADDI;
-
         while (opt!=HALT) {
             ++clk;
             /*在这里使用了两阶段的循环部分：
