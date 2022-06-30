@@ -372,7 +372,7 @@ private:
     IDResult getopt() {
         //write into RS&ROB&LSB
         u32 point = PC;
-//        std::cout << std::hex << PC << "#" << std::endl;
+//        std::cout << std::hex << PC<< std::endl;
 
         u32 so = u32(Memory[point]) + (u32(Memory[point + 1]) << 8) + (u32(Memory[point + 2]) << 16) +
                  (u32(Memory[point + 3]) << 24);
@@ -748,7 +748,8 @@ private:
                                 nowALU.pc = pc;
                                 break;
                             case BGE:
-                                nowALU.value = (int(rs1) > int(rs2));
+                                nowALU.value = (int(rs1) >= int(rs2));
+//                                if(pc==0x1538)cout << "&&&&&&&&&&&&& " << int(rs1) << ' ' << int(rs2) << endl;
                                 nowALU.pc = pc;
                                 break;
                             case BLTU:
@@ -926,7 +927,7 @@ public:
             run_reservation();//pc==0
             run_issue();
 //            cout << clk << endl;
-            // if(clk==1000)exit(0);
+//             if(clk==7000)exit(0);
         }
         std::cout <<dec<< (now_register[10]&255u) << std::endl;
     }
@@ -1020,10 +1021,11 @@ public:
                 nowROB.a[node.reorder].ready = true;
                 switch (node.opt) {
                     case LW:
+//                        cout << node.Vj << "&&& "<<node.reorder << endl;
                         nowROB.a[node.reorder].value = u32(Memory[node.Vj]) + (u32(Memory[node.Vj + 1]) << 8) +
                                                        (u32(Memory[node.Vj + 2]) << 16) +
                                                        (u32(Memory[node.Vj + 3]) << 24);
-//                            cout << node.Vj << "&&& "<<node.reorder << endl;
+
                         break;
                     case LB:
                         nowROB.a[node.reorder].value = Signextend(u32(Memory[node.Vj]), 7);
@@ -1134,8 +1136,8 @@ public:
 //#endif
 
 int main() {
-//    freopen("data.in","r",stdin);
-//    freopen("data.out","w",stdout);
+    freopen("data.in","r",stdin);
+    freopen("data.out","w",stdout);
        stimulator cpu;
        try{
            cpu.init(std::cin);
