@@ -513,7 +513,6 @@ private:
     }preRS[RS_SIZE],nowRS[RS_SIZE];
 
     void rs_get_issue(IDResult op, u32 reorder) {
-//        cout << "reg8 "<<preROB.a[pre_rename[8]].value << endl;
         if (op.opt == LUI){
             PC+=4;//LUI不用计算所以不放入,但是要修改pc！
             return;
@@ -619,6 +618,7 @@ private:
         OPT opt;
         u32 Vj, Vk;
         u32 reorder;
+        int pc_;
         int Qj = -1;
         int Qk = -1;
         bool isload = false;
@@ -643,6 +643,7 @@ private:
 
     void lsb_get_issue(IDResult op, u32 reorder) {
         LSnode node;
+        node.pc_=PC;
         node.reorder = reorder;
         node.opt=op.opt;
         if (op.opt < LB || op.opt > SW)return;
@@ -669,9 +670,6 @@ private:
         for (i =0;i<RS_SIZE;++i) {
             if(preRS[i].busy){
                 if (preRS[i].Qj == -1 && preRS[i].Qk == -1) { // TODO: isready
-//                    if(preRS[i].pc_==0x1008){
-//                        cout <<"()()()() "<< preRS[i].Vj << ' ' << preRS[i].Vk << ' ' << endl;
-//                     }
                     nowALU.reorder = preRS[i].reorder;
                     u32 rs1 = preRS[i].Vj;
                     u32 rs2 = preRS[i].Vk;
@@ -1020,7 +1018,7 @@ public:
         LSnode node;
         if (preLS.isempty())return;
         node = preLS.top();
-//        cout << "LT "<<dec <<node.reorder<<' '<<PP[node.opt]<<' '<< node.Vj <<' ' << node.Vk<<' '<<node.Qj<<' '<<node.Qk<<' '<<node.ready << endl;
+//        cout << "LT "<<hex<<node.pc_<<' '<<PP[node.opt]<<' '<< node.Vj <<' ' << node.Vk<<' '<<node.Qj<<' '<<node.Qk<<' '<<node.ready << endl;
         while (node.isdelete && !preLS.isempty()) {
             preLS.pop();
             nowLS.pop();
@@ -1069,6 +1067,16 @@ public:
                         if (nowRS[i].Qk == -1 && nowRS[i].Qj == -1)nowRS[i].isready = true;
                     }
                 }
+                for(int i = (preLS.front+1)%preLS.maxSize;i!=(preLS.rear+1)%preLS.maxSize;i=(i+1)%preLS.maxSize){
+                    if(nowLS.a[i].Qk==node.reorder){
+                        nowLS.a[i].Qk=-1;
+                        nowLS.a[i].Vk=nowROB.a[node.reorder].value;
+                    }
+                    if(nowLS.a[i].Qj==node.reorder){
+                        nowLS.a[i].Qj=-1;
+                        nowLS.a[i].Vj=nowROB.a[node.reorder].value;
+                    }
+                }
 //                    cout << "lsb commit L" << PP[node.opt] << ' ' << node.reorder << endl;
 //                }
 //                else{
@@ -1105,10 +1113,11 @@ public:
 
     void run_slbuffer() {
         //-------listen--------//
-        lsb_listen();
         //ROB也要对LSB进行修改
+        lsb_listen();
         //--------commit--------//
         lsb_commit();
+
     }
 
     OPT run_rob() {
