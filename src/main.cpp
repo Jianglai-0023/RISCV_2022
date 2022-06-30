@@ -2,6 +2,7 @@
 //#define SIMULATOR_HPP
 using namespace std;
 #include <iostream>
+#include <cstring>
 #include<vector>
 using u32 = unsigned int;
 using u8 = unsigned char;
