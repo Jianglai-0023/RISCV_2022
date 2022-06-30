@@ -18,6 +18,7 @@ private:
     int now_rename[32];
     int PC;
     int lsb_clk=0;
+    int clk=0;
     bool issue_halt = false;
     std::string PP[40]={
             "NONE",
@@ -372,7 +373,7 @@ private:
     IDResult getopt() {
         //write into RS&ROB&LSB
         u32 point = PC;
-//        std::cout << std::hex << PC<< std::endl;
+//        if(clk>30000)std::cout << std::hex << PC<< std::endl;
 
         u32 so = u32(Memory[point]) + (u32(Memory[point + 1]) << 8) + (u32(Memory[point + 2]) << 16) +
                  (u32(Memory[point + 3]) << 24);
@@ -623,9 +624,13 @@ private:
     queue<LSnode> nowLS;
 
     void ls_clear(queue<LSnode> &ls) {
-        for (int i = (ls.front + 1) % ls.maxSize; i != (ls.rear + 1) % ls.maxSize; i = (i + 1) % ls.maxSize) {
-            if (!ls.a[i].isload&&!ls.a[i].ready)ls.a[i].isdelete = true;
-            else if(ls.a[i].isload)ls.a[i].isdelete=true;
+        for (int i = (nowLS.front + 1) % nowLS.maxSize; i != (nowLS.rear + 1) % nowLS.maxSize; i = (i + 1) % nowLS.maxSize) {
+            if (!nowLS.a[i].isload&&!nowLS.a[i].ready)nowLS.a[i].isdelete = true;
+            else if(nowLS.a[i].isload)nowLS.a[i].isdelete=true;
+        }
+        for (int i = (preLS.front + 1) % preLS.maxSize; i != (preLS.rear + 1) % preLS.maxSize; i = (i + 1) % preLS.maxSize) {
+            if (!preLS.a[i].isload&&!preLS.a[i].ready)preLS.a[i].isdelete = true;
+            else if(preLS.a[i].isload)preLS.a[i].isdelete=true;
         }
     }
 
@@ -913,7 +918,7 @@ public:
 
     void run() {
         OPT opt=ADDI;
-        int clk=0;
+
         while (opt!=HALT) {
             ++clk;
             /*在这里使用了两阶段的循环部分：
@@ -1099,19 +1104,10 @@ public:
     }
 
     OPT run_rob() {
-        /*
-        在这一部分你需要完成的工作：
-        1. 实现一个先进先出的ROB，存储所有指令
-        1. 根据issue阶段发射的指令信息分配空间进行存储。//已经实现在issue中
-        2. 根据EX阶段和SLBUFFER的计算得到的结果，遍历ROB，更新ROB中的值//实现在对应对象中
-        3. 对于队首的指令，如果已经完成计算及更新，进行commit
-        */
         //--------listen--------//
         rob_listen();
         //------commit------//
         OPT tmp = rob_commit();
-
-//        cout << now_register[0xc] << " " <<now_register[0xb] << endl;
         return tmp;
     }
 
@@ -1136,8 +1132,8 @@ public:
 //#endif
 
 int main() {
-    freopen("data.in","r",stdin);
-    freopen("data.out","w",stdout);
+//    freopen("data.in","r",stdin);
+//    freopen("data.out","w",stdout);
        stimulator cpu;
        try{
            cpu.init(std::cin);
