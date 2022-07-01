@@ -937,11 +937,6 @@ public:
         OPT opt = ADDI;
         while (opt != HALT) {
             ++clk;
-            /*在这里使用了两阶段的循环部分：
-              1. 实现时序电路部分，即在每个周期初同步更新的信息。
-              2. 实现逻辑电路部分，即在每个周期中如ex、issue的部分
-              已在下面给出代码
-            */
             update();
             opt = run_rob();
             run_slbuffer();
@@ -964,8 +959,6 @@ public:
 //        cout << PP[option.opt] << endl;
 
         int reorder = rob_get_issue(option);
-        // if (PC == 0x1104)
-        //    cout << " @ " << u32(option.rs1) << " " << u32(option.rs2) << " " << reorder<< endl;
         rs_get_issue(option, reorder);
         lsb_get_issue(option, reorder);
     }
@@ -987,7 +980,6 @@ public:
         ROBnode node = preROB.top();
         if (node.opt == HALT)return HALT;
         if (node.ready) {
-            // cout <<" @@@" << (preROB.front+1)%preROB.maxSize << " " << PP[node.opt] << "  | " << node.ready << "  #  " <<node.value << " % " << u32(node.rd )<< endl;
             nowROB.pop(); // TODO BRANCH CLEAR FIXIT
             //------------------beqoff----------------//
 //            if (node.opt>=BEQ&&node.opt<=BGEU && node.value) {//不符合预测
@@ -1039,12 +1031,11 @@ public:
         if (node.isdelete)return;
         if (node.isload) {
             if (node.Qj == -1 && node.Qk == -1 && node.ready) {
-                if (lsb_clk >= 2) {
+                if (lsb_clk >= 3) {
                 nowLS.pop();
                 nowROB.a[node.reorder].ready = true;
                 switch (node.opt) {
                     case LW:
-//                        cout << node.Vj << "&&& "<<node.reorder << endl;
                         nowROB.a[node.reorder].value = u32(Memory[node.Vj]) + (u32(Memory[node.Vj + 1]) << 8) +
                                                        (u32(Memory[node.Vj + 2]) << 16) +
                                                        (u32(Memory[node.Vj + 3]) << 24);
