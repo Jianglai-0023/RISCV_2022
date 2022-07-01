@@ -1029,7 +1029,7 @@ public:
         if (node.isdelete)return;
         if (node.isload) {
             if (node.Qj == -1 && node.Qk == -1 && node.ready) {
-//                if(lsb_clk==3){
+                if(lsb_clk==3){
                 nowLS.pop();
                 nowROB.a[node.reorder].ready = true;
                 switch (node.opt) {
@@ -1078,14 +1078,14 @@ public:
                     }
                 }
 //                    cout << "lsb commit L" << PP[node.opt] << ' ' << node.reorder << endl;
-//                }
-//                else{
-//                    ++lsb_clk;
-//                }
+                }
+                else{
+                    ++lsb_clk;
+                }
             }
         } else {
             if (node.Qj == -1 && node.Qk == -1 && node.ready) {
-//                if(lsb_clk==3){
+                if(lsb_clk==3){
                 nowLS.pop();
                 switch (node.opt) {
                     case SB:
@@ -1101,15 +1101,15 @@ public:
                         Memory[node.Vj + 2] = (node.Vk >> 16) & 0xff;
                         Memory[node.Vj + 3] = (node.Vk >> 24) & 0xff;
                         break;
-//                    }
-//                    lsb_clk=0;
+                    }
+                    lsb_clk=0;
 //                    cout << "lsb commit S " << PP[node.opt] << ' ' << node.reorder << endl;
-//                }
-//                else ++lsb_clk;
+                }
+                else ++lsb_clk;
                 }
             }
         }
-    }
+
 
     void run_slbuffer() {
         //-------listen--------//
