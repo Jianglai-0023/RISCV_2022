@@ -980,7 +980,7 @@ public:
         ROBnode node = preROB.top();
         if (node.opt == HALT)return HALT;
         if (node.ready) {
-            nowROB.pop(); // TODO BRANCH CLEAR FIXIT
+             // TODO BRANCH CLEAR FIXIT
             //------------------beqoff----------------//
 //            if (node.opt>=BEQ&&node.opt<=BGEU && node.value) {//不符合预测
 //                PC = node.beqpc;
@@ -992,27 +992,28 @@ public:
             if (node.opt >= LB && node.opt <= LHU) {//isload,update rd 计算完成
                 now_register[node.rd] = node.value;
                 if (pre_rename[node.rd] == (preROB.front + 1) % preROB.maxSize)now_rename[node.rd] = -1;
+                nowROB.pop();
 //                cout << "CM "<<(preROB.front+1)%preROB.maxSize<<' '<<PP[node.opt]<<' '<<u32(node.rd) << ' '<<hex<<now_register[node.rd] <<endl;
             } else if (node.opt >= SB && node.opt <= SW) {//isstore
                 //send to lsbuffer
                 int reorder = (preROB.front + 1) % preROB.maxSize;
+//                if(reorder==5)cout << node.
                 for (int i = (preLS.front + 1) % preLS.maxSize;
                      i != (preLS.rear + 1) % preLS.maxSize; i = (i + 1) % preLS.maxSize) {
-                    if (preLS.a[i].reorder == reorder) {
+                    if (preLS.a[i].reorder == reorder&&preLS.a[i].Qj==-1&&preLS.a[i].Qk==-1) {
                         nowLS.a[i].ready = true;
+                        nowROB.pop();
 //                        nowLS.a[i].Vj=node.value;
                         break;
                     }
                 }
 //                cout << "CM "<<(preROB.front+1)%preROB.maxSize<<' '<<PP[node.opt]<<' '<<u32(node.rd) << ' '<<node.value <<endl;
             } else {
+                nowROB.pop();
                 now_register[node.rd] = node.value;
                 if (pre_rename[node.rd] == (preROB.front + 1) % preROB.maxSize)now_rename[node.rd] = -1;
 //                cout << "CM "<<(preROB.front+1)%preROB.maxSize<<' '<<PP[node.opt]<<' '<<u32(node.rd) << ' '<<now_register[node.rd] <<endl;
             }
-//            cout <<"$$ "<<hex << node.pc_<<' '<<now_register[15]<<endl;
-//            <<' '<< u32(Memory[0x11b0])<<' '<<(u32(Memory[0x11b0+1])<<8)<<' '<<(u32(Memory[0x11b0+2])<<16)<<' '<<(u32(Memory[0x11b0+3])<<24)<<endl;
-//            cout<<"$$"<<hex <<' '<<' '<< node.pc_ <<' '<< now_register[0xc] << ' ' << now_register[0xb]<<' '<<now_register[0xa]<<' '<<now_register[15] << endl;
             return node.opt;
         }
         return ROBHALT;
@@ -1086,10 +1087,10 @@ public:
             }
         }
         } else {
-            // cout << node.reorder << "#####" << " " << node.Qj << " " << node.Qk << " " << node.ready << " " << lsb_clk<<endl;
+//             cout << node.reorder << "#####" << " " << node.Qj << " " << node.Qk << " " << node.ready << " " << lsb_clk<<endl;
             if (node.Qj == -1 && node.Qk == -1 && node.ready) {
-                    // cout<<"&&&&&&" << lsb_clk << endl;
-                if (lsb_clk >= 2) {
+//                     cout<<"&&&&&&" << lsb_clk << endl;
+                if (lsb_clk >= 3) {
                     nowLS.pop();
                     switch (node.opt) {
                         case SB:
