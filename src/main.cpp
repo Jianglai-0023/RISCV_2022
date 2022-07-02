@@ -23,6 +23,8 @@ private:
     int lsb_clk = 0;
     int clk = 0;
     bool issue_halt = false;
+    bool jump_wrong=false;
+    int change_pc_to=0;
     std::string PP[40] = {
             "NONE",
             "LB",     // I    Load Byte
@@ -375,12 +377,12 @@ private:
 
     IDResult getopt() {
         //write into RS&ROB&LSB
+        if(jump_wrong){
+            PC=change_pc_to;
+            jump_wrong=false;
+        }
         u32 point = PC;
-//        std::cout << std::hex << PC<< std::endl;
-//        cout << issue_halt << "**" << endl;
-//        cout << clk << "$$" << endl;
-//        if(clk==9584)exit(0);
-
+//        std::cout << std::hex << PC<<' '<<pre_register[10]<< std::endl;
         u32 so = u32(Memory[point]) + (u32(Memory[point + 1]) << 8) + (u32(Memory[point + 2]) << 16) +
                  (u32(Memory[point + 3]) << 24);
         IDResult ans = ID(so);
@@ -406,9 +408,7 @@ private:
         }
 
         ~queue() {
-//            std::cout<< "here" << std::endl;
             delete[] a;
-//            std::cout << "after"<<std::endl;
         };
 
         queue &operator=(const queue &q) {
@@ -456,9 +456,6 @@ private:
     } preALU, nowALU;
 
     struct ROBnode {
-//        bool ismem = false;
-//        bool isload = false;
-//        bool isbeq=false;
         bool ready = false;
         OPT opt;
         u8 rd;
@@ -470,40 +467,6 @@ private:
     queue<ROBnode> preROB;
 
     queue<ROBnode> nowROB;
-
-    int rob_get_issue(IDResult op) {
-//        cout << "pre_rename " << pre_rename[8] << endl;
-        ROBnode node;
-        node.opt = op.opt;
-        node.pc_ = PC;
-//        if (op.opt >= LB && op.opt <= SW) {
-//            node.ismem = true;
-//            if (op.opt >= LB && op.opt <= LHU)node.isload = true;
-//        }
-//----------beoff----------//
-        if (op.opt >= BEQ && op.opt <= BGEU) {
-            node.ready = true;
-        }
-//----------------//
-
-        if (op.opt == LUI) {
-            node.ready = true;
-            node.value = op.imm;
-        }
-        if (op.opt == JALR || op.opt == JAL) {
-            node.ready = true;
-            node.value = PC + 4;
-        }
-        if (op.opt == HALT)node.ready = true;
-        node.rd = op.rd;
-        int reorder = nowROB.in(node);
-        if (op.opt >= LB && op.opt <= LHU || op.opt >= JAL && op.opt < ROBHALT) {
-            now_rename[op.rd] = reorder;
-//                if(node.pc_==0x100c)cout << op.rd << "##########" <<endl;
-        }
-
-        return reorder;
-    }
 
     bool check_ready(u32 index) {//去rob队列里观察是否ready
         if (nowROB.a[index].ready)return true;
@@ -520,6 +483,22 @@ private:
         int beq;//跳转指令的pc值
         int pc_;
     } preRS[RS_SIZE], nowRS[RS_SIZE];
+
+    struct LSnode {
+        OPT opt;
+        u32 Vj, Vk;
+        u32 reorder;
+        int pc_;
+        int Qj = -1;
+        int Qk = -1;
+        bool isload = false;
+        bool ready = false;
+        bool isdelete = false;
+    };
+
+    queue<LSnode> preLS;
+
+    queue<LSnode> nowLS;
 
     void rs_get_issue(IDResult op, u32 reorder) {
         if (op.opt == LUI) {
@@ -545,10 +524,11 @@ private:
                     node.Vj = nowROB.a[pre_rename[u32(op.rs1)]].value;
                 } else node.Qj = pre_rename[u32(op.rs1)];
                 if (node.Qj == -1 && node.Qk == -1)node.isready = true;
-//                PC+=4;
             } else {
-                issue_halt = true;
-                node.beq = PC + op.imm;
+                //-----------beqoff--------------------//
+//                issue_halt = true;
+                //----------------------------//
+                node.beq = PC+4;
                 if (pre_rename[u32(op.rs1)] == -1) {
                     node.Vj = pre_register[u32(op.rs1)];
                 } else if (check_ready(pre_rename[u32(op.rs1)])) {
@@ -561,6 +541,7 @@ private:
                     node.Vk = nowROB.a[pre_rename[u32(op.rs2)]].value;
                 } else node.Qk = pre_rename[u32(op.rs2)];
                 if (node.Qj == -1 && node.Qk == -1)node.isready = true;
+                PC+=op.imm;//predict jump
             }
         } else if (op.opt >= LB && op.opt <= SW) {//for mem
             if (op.opt >= LB && op.opt <= LHU)node.reorder = reorder + 256;
@@ -572,9 +553,6 @@ private:
                 node.Vj = nowROB.a[pre_rename[u32(op.rs1)]].value;
                 node.isready = true;
             } else node.Qj = pre_rename[u32(op.rs1)];
-//            if(op.opt==SW){
-//                cout << op.imm << node.Vj<<' '<<node.Qj<<"!!"<<endl;
-//            }
             PC += 4;
         } else if (op.opt > LUI) {
             if (op.opt == AUIPC) {
@@ -590,13 +568,10 @@ private:
                 if (op.opt >= ADDI && op.opt <= SRAI)node.Vk = op.imm;
                 else if (op.opt > SRAI && op.opt <= AND) {
                     if (pre_rename[u32(op.rs2)] == -1) {
-                        // cout << " &&&&&11& " << reorder<<PP[op.opt]<< endl;
                         node.Vk = pre_register[u32(op.rs2)];
                     } else if (check_ready(pre_rename[u32(op.rs2)])) {
-                        // cout << " &&&&&22& " << reorder<<PP[op.opt]<< endl;
                         node.Vk = nowROB.a[pre_rename[u32(op.rs2)]].value;
                     } else {
-                        // cout << " &&&&&33& " << reorder<<PP[op.opt]<< endl;
                         node.Qk = pre_rename[u32(op.rs2)];
                     }
                 }
@@ -615,60 +590,7 @@ private:
 //        cout << "issue "<<PP[node.op] << ' '<< node.Qj <<' '<<node.Qk<<' '<<node.Vk<<' '<<reorder << endl;
         if (i == RS_SIZE)throw ("rs is full");
     }
-
-    struct LSnode {
-        OPT opt;
-        u32 Vj, Vk;
-        u32 reorder;
-        int pc_;
-        int Qj = -1;
-        int Qk = -1;
-        bool isload = false;
-        bool ready = false;
-        bool isdelete = false;
-    };
-
-    queue<LSnode> preLS;
-
-    queue<LSnode> nowLS;
-
-    void ls_clear(queue<LSnode> &ls) {
-        for (int i = (nowLS.front + 1) % nowLS.maxSize;
-             i != (nowLS.rear + 1) % nowLS.maxSize; i = (i + 1) % nowLS.maxSize) {
-            if (!nowLS.a[i].isload && !nowLS.a[i].ready)nowLS.a[i].isdelete = true;
-            else if (nowLS.a[i].isload)nowLS.a[i].isdelete = true;
-        }
-        for (int i = (preLS.front + 1) % preLS.maxSize;
-             i != (preLS.rear + 1) % preLS.maxSize; i = (i + 1) % preLS.maxSize) {
-            if (!preLS.a[i].isload && !preLS.a[i].ready)preLS.a[i].isdelete = true;
-            else if (preLS.a[i].isload)preLS.a[i].isdelete = true;
-        }
-    }
-
-    void lsb_get_issue(IDResult op, u32 reorder) {
-        LSnode node;
-        node.pc_ = PC;
-        node.reorder = reorder;
-        node.opt = op.opt;
-        if (op.opt < LB || op.opt > SW)return;
-        if (op.opt >= LB && op.opt <= LHU) {
-            node.isload = true;
-            node.Qj = reorder + 256;
-            node.ready = true;
-        } else {
-            node.Qj = reorder;
-//            if (op.opt == SW) cout << " &&&" << reorder << endl;
-            if (pre_rename[u32(op.rs2)] == -1) {
-                node.Vk = pre_register[u32(op.rs2)];
-            } else if (check_ready(pre_rename[u32(op.rs2)])) {
-                node.Vk = nowROB.a[pre_rename[u32(op.rs2)]].value;
-            } else node.Qk = pre_rename[u32(op.rs2)];
-        }
-        nowLS.in(node);
-    }
-
     void rs_send_ready() {
-//        cout <<"@@"<< preRS[3].Vj <<' ' <<preRS[3].Qk << endl;
         int i = 0;
         for (i = 0; i < RS_SIZE; ++i) {
             if (preRS[i].busy) {
@@ -689,9 +611,9 @@ private:
                                 break;
                             case ADDI:
                                 nowALU.value = rs1 + rs2;
-//                               cout << nowALU.value<<endl;
                                 break;
                             case SUB:
+//                                if(preRS[i].pc_==0x1120)cout << rs1 << ' ' << rs2 << "@@@"<<endl;
                                 nowALU.value = rs1 - rs2;
                                 break;
                             case LUI://其实不存在
@@ -701,12 +623,12 @@ private:
                                 break;
                             case XOR:
                                 nowALU.value = rs1 ^ rs2;
-//                                cout << " $$$$$$$$ " << nowALU.value <<' ' <<nowALU.reorder<<' '<<u32(nowROB.a[nowALU.reorder].rd)<<endl;
                                 break;
                             case XORI:
                                 nowALU.value = rs1 ^ imm;
                                 break;
                             case OR:
+//                                cout << rs1 << ' ' << rs2 << endl;
                                 nowALU.value = rs1 | rs2;
                                 break;
                             case ORI:
@@ -757,15 +679,17 @@ private:
                                 nowALU.pc = pc;
                                 break;
                             case BLT:
+//                                cout << "rs1 rs2 " <<dec<< int(rs1) << ' ' << int(rs2) <<' ';
                                 nowALU.value = (int(rs1) < int(rs2));
+//                                cout << nowALU.value << endl;
                                 nowALU.pc = pc;
                                 break;
                             case BGE:
                                 nowALU.value = (int(rs1) >= int(rs2));
-//                                if(pc==0x1538)cout << "&&&&&&&&&&&&& " << int(rs1) << ' ' << int(rs2) << endl;
                                 nowALU.pc = pc;
                                 break;
                             case BLTU:
+//                                cout << "%%%%" <<preRS[i].pc_<<' '<< rs1 << ' ' << rs2 << endl;
                                 nowALU.value = (rs1 < rs2);
                                 nowALU.pc = pc;
                                 break;
@@ -821,25 +745,23 @@ private:
         }
         if (i == RS_SIZE)nowALU.opt = NONE;
     }
-
     void rs_listen() {
         //branch
-        if (preALU.reorder == -1)return;
+        if (preALU.reorder == -1||preALU.opt==NONE)return;
 //        cout <<"rslisten "<<preALU.reorder<<' '<<preALU.value<<endl;
-        if (preALU.opt == NONE) return; // TODO
         if (preALU.opt == JALR) {
             issue_halt = false;
             PC = preALU.pc;
             return;
         }
         //------beqoff-------//
-        if (preALU.opt >= BEQ && preALU.opt <= BGEU) {
-            issue_halt = false;
-            if (preALU.value) {
-                PC = preALU.pc;
-            } else PC += 4;
-            return;
-        }
+//        if (preALU.opt >= BEQ && preALU.opt <= BGEU) {
+//            issue_halt = false;
+//            if (preALU.value) {
+//                PC = preALU.pc;
+//            } else PC += 4;
+//            return;
+//        }
         //--------------------//
         if (preALU.opt >= LB && preALU.opt <= LHU)return;
         for (int i = 0; i < RS_SIZE; ++i) {
@@ -860,6 +782,27 @@ private:
         }
     }
 
+    void lsb_get_issue(IDResult op, u32 reorder) {
+        LSnode node;
+        node.pc_ = PC;
+        node.reorder = reorder;
+        node.opt = op.opt;
+        if (op.opt < LB || op.opt > SW)return;
+        if (op.opt >= LB && op.opt <= LHU) {
+            node.isload = true;
+            node.Qj = reorder + 256;
+            node.ready = true;
+        } else {
+            node.Qj = reorder;
+//            if (op.opt == SW) cout << " &&&" << reorder << endl;
+            if (pre_rename[u32(op.rs2)] == -1) {
+                node.Vk = pre_register[u32(op.rs2)];
+            } else if (check_ready(pre_rename[u32(op.rs2)])) {
+                node.Vk = nowROB.a[pre_rename[u32(op.rs2)]].value;
+            } else node.Qk = pre_rename[u32(op.rs2)];
+        }
+        nowLS.in(node);
+    }
     void lsb_listen() {
         if (preALU.opt == NONE) return;
         if (preALU.reorder == -1)return;
@@ -869,17 +812,147 @@ private:
             if (preLS.a[i].Qj == preALU.reorder) {
                 nowLS.a[i].Vj = preALU.value;
                 nowLS.a[i].Qj = -1;
-//                if(preALU.reorder==4)cout << "$$$"<<preALU.value<<endl;
-//                cout << "qwqq" << endl;
             }
             if (preLS.a[i].Qk == preALU.reorder) {
                 nowLS.a[i].Vk = preALU.value;
                 nowLS.a[i].Qk = -1;
             }
-//            if(nowLS.a[i].Qj==-1&&nowLS.a[i].Qk==-1)nowLS.a[i].ready=true;
+        }
+    }
+    void ls_clear(queue<LSnode> &ls) {
+        for (int i = (nowLS.front + 1) % nowLS.maxSize;
+             i != (nowLS.rear + 1) % nowLS.maxSize; i = (i + 1) % nowLS.maxSize) {
+            if (!nowLS.a[i].isload && !nowLS.a[i].ready)nowLS.a[i].isdelete = true;
+            else if (nowLS.a[i].isload)nowLS.a[i].isdelete = true;
+        }
+        for (int i = (preLS.front + 1) % preLS.maxSize;
+             i != (preLS.rear + 1) % preLS.maxSize; i = (i + 1) % preLS.maxSize) {
+            if (!preLS.a[i].isload && !preLS.a[i].ready)preLS.a[i].isdelete = true;
+            else if (preLS.a[i].isload)preLS.a[i].isdelete = true;
+        }
+    }
+    void lsb_commit() {
+        LSnode node;
+        if (preLS.isempty())return;
+        node = preLS.top();
+//        cout << "LT "<<hex<<node.pc_<<' '<<PP[node.opt]<<' '<< node.Vj <<' ' << node.Vk<<' '<<node.Qj<<' '<<node.Qk<<' '<<node.ready << endl;
+        while (node.isdelete) {
+            preLS.pop();
+            nowLS.pop();
+            if(!preLS.isempty())node=preLS.top();
+            else break;
+        }
+        if (node.isdelete)return;
+        if (node.isload) {
+            if (node.Qj == -1 && node.Qk == -1 && node.ready) {
+                if (lsb_clk >= 2) {
+                    nowLS.pop();
+                    nowROB.a[node.reorder].ready = true;
+                    switch (node.opt) {
+                        case LW:
+                            nowROB.a[node.reorder].value = u32(Memory[node.Vj]) + (u32(Memory[node.Vj + 1]) << 8) +
+                                                           (u32(Memory[node.Vj + 2]) << 16) +
+                                                           (u32(Memory[node.Vj + 3]) << 24);
+
+                            break;
+                        case LB:
+                            nowROB.a[node.reorder].value = Signextend(u32(Memory[node.Vj]), 7);
+                            break;
+                        case LH:
+                            nowROB.a[node.reorder].value = Signextend(
+                                    u32(Memory[node.Vj]) + (u32(Memory[node.Vj + 1]) << 8), 15);
+                            break;
+                        case LBU:
+                            nowROB.a[node.reorder].value = u32(Memory[node.Vj]);
+                            break;
+                        case LHU:
+                            nowROB.a[node.reorder].value = u32(Memory[node.Vj]) + (u32(Memory[node.Vj + 1]) << 8);
+                            break;
+                    }
+                    lsb_clk = 0;
+                    for (int i = 0; i < RS_SIZE; ++i) {
+                        if (preRS[i].busy) {
+                            if (preRS[i].Qk == node.reorder) {
+                                nowRS[i].Qk = -1;
+                                nowRS[i].Vk = nowROB.a[node.reorder].value;
+                            }
+                            if (preRS[i].Qj == node.reorder) {
+                                nowRS[i].Qj = -1;
+                                nowRS[i].Vj = nowROB.a[node.reorder].value;
+                            }
+                            if (nowRS[i].Qk == -1 && nowRS[i].Qj == -1)nowRS[i].isready = true;
+                        }
+                    }
+                    for (int i = (preLS.front + 1) % preLS.maxSize;
+                         i != (preLS.rear + 1) % preLS.maxSize; i = (i + 1) % preLS.maxSize) {
+                        if (preLS.a[i].Qk == node.reorder) {
+                            nowLS.a[i].Qk = -1;
+                            nowLS.a[i].Vk = nowROB.a[node.reorder].value;
+                        }
+                        if (preLS.a[i].Qj == node.reorder) {
+                            nowLS.a[i].Qj = -1;
+                            nowLS.a[i].Vj = nowROB.a[node.reorder].value;
+                        }
+                    }
+                    // cout << "lsb commit L" << PP[node.opt] << ' ' << node.reorder << endl;
+                } else {
+                    ++lsb_clk;
+                }
+            }
+        } else {
+//             cout << node.reorder << "#####" << " " << node.Qj << " " << node.Qk << " " << node.ready << " " << lsb_clk<<endl;
+            if (node.Qj == -1 && node.Qk == -1 && node.ready) {
+                if(lsb_clk>=2){
+                    nowLS.pop();
+                    switch(node.opt){
+                        case SB:
+                            Memory[node.Vj] = u8(node.Vk);
+                            break;
+                        case SH:
+                            Memory[node.Vj] = u8(node.Vk);
+                            Memory[node.Vj + 1] = u8(node.Vk >> 8);
+                            break;
+                        case SW:
+                            Memory[node.Vj] = node.Vk & 0xff;
+                            Memory[node.Vj + 1] = (node.Vk >> 8) & 0xff;
+                            Memory[node.Vj + 2] = (node.Vk >> 16) & 0xff;
+                            Memory[node.Vj + 3] = (node.Vk >> 24) & 0xff;
+                            break;
+                    }
+                    lsb_clk=0;
+                }
+                else ++lsb_clk;
+            }
         }
     }
 
+    int rob_get_issue(IDResult op) {
+        ROBnode node;
+        node.opt = op.opt;
+        node.pc_ = PC;
+//----------beqoff----------//
+        if (op.opt >= BEQ && op.opt <= BGEU) {
+            node.ready = false;
+        }
+//----------------//
+
+        if (op.opt == LUI) {
+            node.ready = true;
+            node.value = op.imm;
+        }
+        if (op.opt == JALR || op.opt == JAL) {
+            node.ready = true;
+            node.value = PC + 4;
+        }
+        if (op.opt == HALT)node.ready = true;
+        node.rd = op.rd;
+        int reorder = nowROB.in(node);
+        if (op.opt >= LB && op.opt <= LHU || op.opt >= JAL && op.opt < ROBHALT) {
+            now_rename[op.rd] = reorder;
+        }
+
+        return reorder;
+    }
     void rob_listen() {
         // cout << "rob listen " << ' ' << preALU.reorder<<' '<<PP[preALU.opt] << ' ';
         if (preALU.opt == NONE) return;
@@ -887,22 +960,63 @@ private:
             if (preROB.a[preALU.reorder].opt == JALR || preROB.a[preALU.reorder].opt == JAL) {
                 return;
             } else if (preROB.a[preALU.reorder].opt > LHU && preROB.a[preALU.reorder].opt <= AND) {//除了load
-//                if(preALU.reorder==0x13)cout << preALU.value<<' '<<dec<<u32(nowROB.a[0x13].rd) << "$ %$$ " << endl;
                 nowROB.a[preALU.reorder].beqpc = preALU.pc;
                 nowROB.a[preALU.reorder].value = preALU.value;
                 nowROB.a[preALU.reorder].ready = true;
             }
-
-//            else if (!preROB.a[preALU.reorder].ismem) {
-//                nowROB.a[preALU.reorder].value = preALU.value;
-//                nowROB.a[preALU.reorder].ready = true;
-//                nowROB.a[preALU.reorder].
-//            }
-//            else if(!preROB.a[preALU.reorder].isload){//store在rob处commit
-//               nowROB.a[preALU.reorder].ready=true;
-//            }
         }
-//        cout << nowROB.a[1].ready << endl;
+    }
+    OPT rob_commit() {
+        if (preROB.isempty())return NONE;
+        ROBnode node = preROB.top();
+        if (node.opt == HALT)return HALT;
+        int bug=12;
+        if (node.ready) {
+            // TODO BRANCH CLEAR FIXIT
+            //------------------beqoff----------------//
+            if (node.opt>=BEQ&&node.opt<=BGEU && node.value) {//符合预测
+                nowROB.pop();
+//                cout <<hex<< node.pc_ << ' ' << now_register[bug] << endl;
+                return node.opt;
+            } else if (node.opt>=BEQ&&node.opt<=BGEU && !node.value) {//不符合预测
+                nowROB.pop();
+                beq_faild();
+                change_pc_to=node.beqpc;
+                jump_wrong=true;
+//                cout << "JUMPWRONG" <<endl;
+//                cout <<hex<< node.pc_ << ' ' << now_register[bug] << endl;
+                 return node.opt;
+            }
+            //---------------------//
+            if (node.opt >= LB && node.opt <= LHU) {//isload,update rd 计算完成
+                now_register[node.rd] = node.value;
+                if (pre_rename[node.rd] == (preROB.front + 1) % preROB.maxSize)now_rename[node.rd] = -1;
+                nowROB.pop();
+//                cout <<hex<< node.pc_ << ' ' << now_register[bug] << endl;
+//                cout << "CM "<<(preROB.front+1)%preROB.maxSize<<' '<<PP[node.opt]<<' '<<u32(node.rd) << ' '<<hex<<now_register[node.rd] <<endl;
+            } else if (node.opt >= SB && node.opt <= SW) {//isstore
+                //send to lsbuffer
+                int reorder = (preROB.front + 1) % preROB.maxSize;
+                for (int i = (preLS.front + 1) % preLS.maxSize;
+                     i != (preLS.rear + 1) % preLS.maxSize; i = (i + 1) % preLS.maxSize) {
+                    if (preLS.a[i].reorder == reorder&&preLS.a[i].Qj==-1&&preLS.a[i].Qk==-1&&!preLS.a[i].ready&&!preLS.a[i].isdelete) {
+                        nowLS.a[i].ready = true;
+                        nowROB.pop();
+                        break;
+                    }
+                }
+//                cout <<hex<< node.pc_ << ' ' << now_register[bug] << endl;
+//                cout << "CM "<<(preROB.front+1)%preROB.maxSize<<' '<<PP[node.opt]<<' '<<u32(node.rd) << ' '<<node.value <<endl;
+            } else {
+                nowROB.pop();
+                now_register[node.rd] = node.value;
+                if (pre_rename[node.rd] == (preROB.front + 1) % preROB.maxSize)now_rename[node.rd] = -1;
+//                cout <<hex<< node.pc_ << ' ' << now_register[bug] << endl;
+//                cout << "CM "<<(preROB.front+1)%preROB.maxSize<<' '<<PP[node.opt]<<' '<<u32(node.rd) << ' '<<now_register[node.rd] <<endl;
+            }
+            return node.opt;
+        }
+        return ROBHALT;
     }
 
 public:
@@ -935,15 +1049,15 @@ public:
 
     void run() {
         OPT opt = ADDI;
-        while (opt != HALT) {
+        while (opt != HALT){
             ++clk;
             update();
             opt = run_rob();
-            run_slbuffer();
-            run_reservation();//pc==0
+            if(!jump_wrong){
+                run_slbuffer();
+                run_reservation();//pc==0
+            }
             run_issue();
-//            cout << clk << endl;
-//             if(clk==7000)exit(0);
         }
         std::cout << dec << (now_register[10] & 255u) << std::endl;
     }
@@ -951,170 +1065,32 @@ public:
     void run_issue() {//获取指令与指令分发
         if (issue_halt)return;
         if (nowROB.isfull() || rsfull() || nowLS.isfull()) {
+//            cout << nowROB.isfull() << rsfull() << nowLS.isfull() <<"######" <<endl;
             return;
         }
-        // if (ROB, RS, LSB是满的) return;
-        // TODO: 如果 RoB，RS，LSB是满的
         IDResult option = getopt();
 //        cout << PP[option.opt] << endl;
-
         int reorder = rob_get_issue(option);
         rs_get_issue(option, reorder);
         lsb_get_issue(option, reorder);
     }
 
     void beq_faild() {
-        for (int i = 0; i < 32; ++i)now_rename[i] = -1;
+        for (int i = 0; i < 32; ++i)now_rename[i] =pre_rename[i]=-1;
+        for(int i = 0; i < RS_SIZE; ++i)nowRS[i].busy=preRS[i].busy=false;
         nowROB.clear();
+        preROB.clear();
         ls_clear(nowLS);
+        ls_clear(preLS);
+        issue_halt=false;
+        nowALU.opt=preALU.opt=NONE;
+        lsb_clk=0;
     }
 
     void run_reservation() {
         rs_send_ready();
         rs_listen();
     }
-
-
-    OPT rob_commit() {
-        if (preROB.isempty())return NONE;
-        ROBnode node = preROB.top();
-        if (node.opt == HALT)return HALT;
-        if (node.ready) {
-             // TODO BRANCH CLEAR FIXIT
-            //------------------beqoff----------------//
-//            if (node.opt>=BEQ&&node.opt<=BGEU && node.value) {//不符合预测
-//                PC = node.beqpc;
-//                beq_faild();
-//            } else if (node.opt>=BEQ&&node.opt<=BGEU && !node.value) {//符合预测
-//                return node.opt;
-//            }
-//---------------------//
-            if (node.opt >= LB && node.opt <= LHU) {//isload,update rd 计算完成
-                now_register[node.rd] = node.value;
-                if (pre_rename[node.rd] == (preROB.front + 1) % preROB.maxSize)now_rename[node.rd] = -1;
-                nowROB.pop();
-//                cout << "CM "<<(preROB.front+1)%preROB.maxSize<<' '<<PP[node.opt]<<' '<<u32(node.rd) << ' '<<hex<<now_register[node.rd] <<endl;
-            } else if (node.opt >= SB && node.opt <= SW) {//isstore
-                //send to lsbuffer
-                int reorder = (preROB.front + 1) % preROB.maxSize;
-//                if(reorder==5)cout << node.
-                for (int i = (preLS.front + 1) % preLS.maxSize;
-                     i != (preLS.rear + 1) % preLS.maxSize; i = (i + 1) % preLS.maxSize) {
-                    if (preLS.a[i].reorder == reorder&&preLS.a[i].Qj==-1&&preLS.a[i].Qk==-1) {
-                        nowLS.a[i].ready = true;
-                        nowROB.pop();
-//                        nowLS.a[i].Vj=node.value;
-                        break;
-                    }
-                }
-//                cout << "CM "<<(preROB.front+1)%preROB.maxSize<<' '<<PP[node.opt]<<' '<<u32(node.rd) << ' '<<node.value <<endl;
-            } else {
-                nowROB.pop();
-                now_register[node.rd] = node.value;
-                if (pre_rename[node.rd] == (preROB.front + 1) % preROB.maxSize)now_rename[node.rd] = -1;
-//                cout << "CM "<<(preROB.front+1)%preROB.maxSize<<' '<<PP[node.opt]<<' '<<u32(node.rd) << ' '<<now_register[node.rd] <<endl;
-            }
-            return node.opt;
-        }
-        return ROBHALT;
-    }
-
-    void lsb_commit() {
-        LSnode node;
-        if (preLS.isempty())return;
-        node = preLS.top();
-//        cout << "LT "<<hex<<node.pc_<<' '<<PP[node.opt]<<' '<< node.Vj <<' ' << node.Vk<<' '<<node.Qj<<' '<<node.Qk<<' '<<node.ready << endl;
-        while (node.isdelete && !preLS.isempty()) {
-            preLS.pop();
-            nowLS.pop();
-            node = preLS.top();
-        }
-        if (node.isdelete)return;
-        if (node.isload) {
-            if (node.Qj == -1 && node.Qk == -1 && node.ready) {
-                if (lsb_clk >= 3) {
-                nowLS.pop();
-                nowROB.a[node.reorder].ready = true;
-                switch (node.opt) {
-                    case LW:
-                        nowROB.a[node.reorder].value = u32(Memory[node.Vj]) + (u32(Memory[node.Vj + 1]) << 8) +
-                                                       (u32(Memory[node.Vj + 2]) << 16) +
-                                                       (u32(Memory[node.Vj + 3]) << 24);
-
-                        break;
-                    case LB:
-                        nowROB.a[node.reorder].value = Signextend(u32(Memory[node.Vj]), 7);
-                        break;
-                    case LH:
-                        nowROB.a[node.reorder].value = Signextend(
-                                u32(Memory[node.Vj]) + (u32(Memory[node.Vj + 1]) << 8), 15);
-                        break;
-                    case LBU:
-                        nowROB.a[node.reorder].value = u32(Memory[node.Vj]);
-                        break;
-                    case LHU:
-                        nowROB.a[node.reorder].value = u32(Memory[node.Vj]) + (u32(Memory[node.Vj + 1]) << 8);
-                        break;
-                }
-                    lsb_clk = 0;
-                for (int i = 0; i < RS_SIZE; ++i) {
-                    if (preRS[i].busy) {
-                        if (preRS[i].Qk == node.reorder) {
-                            nowRS[i].Qk = -1;
-                            nowRS[i].Vk = nowROB.a[node.reorder].value;
-                        }
-                        if (preRS[i].Qj == node.reorder) {
-                            nowRS[i].Qj = -1;
-                            nowRS[i].Vj = nowROB.a[node.reorder].value;
-                        }
-                        if (nowRS[i].Qk == -1 && nowRS[i].Qj == -1)nowRS[i].isready = true;
-                    }
-                }
-                for (int i = (preLS.front + 1) % preLS.maxSize;
-                     i != (preLS.rear + 1) % preLS.maxSize; i = (i + 1) % preLS.maxSize) {
-                    if (nowLS.a[i].Qk == node.reorder) {
-                        nowLS.a[i].Qk = -1;
-                        nowLS.a[i].Vk = nowROB.a[node.reorder].value;
-                    }
-                    if (nowLS.a[i].Qj == node.reorder) {
-                        nowLS.a[i].Qj = -1;
-                        nowLS.a[i].Vj = nowROB.a[node.reorder].value;
-                    }
-                }
-                    // cout << "lsb commit L" << PP[node.opt] << ' ' << node.reorder << endl;
-                } else {
-                    ++lsb_clk;
-            }
-        }
-        } else {
-//             cout << node.reorder << "#####" << " " << node.Qj << " " << node.Qk << " " << node.ready << " " << lsb_clk<<endl;
-            if (node.Qj == -1 && node.Qk == -1 && node.ready) {
-//                     cout<<"&&&&&&" << lsb_clk << endl;
-                if (lsb_clk >= 3) {
-                    nowLS.pop();
-                    switch (node.opt) {
-                        case SB:
-                            Memory[node.Vj] = u8(node.Vk);
-                            break;
-                        case SH:
-                            Memory[node.Vj] = u8(node.Vk);
-                            Memory[node.Vj + 1] = u8(node.Vk >> 8);
-                            break;
-                        case SW:
-                            Memory[node.Vj] = node.Vk & 0xff;
-                            Memory[node.Vj + 1] = (node.Vk >> 8) & 0xff;
-                            Memory[node.Vj + 2] = (node.Vk >> 16) & 0xff;
-                            Memory[node.Vj + 3] = (node.Vk >> 24) & 0xff;
-                            break;
-                    }
-                    lsb_clk = 0;
-//                    cout << "lsb commit S " << PP[node.opt] << ' ' << node.reorder << endl;
-                }
-                else ++lsb_clk;
-            }
-        }
-    }
-
 
     void run_slbuffer() {
         //-------listen--------//
