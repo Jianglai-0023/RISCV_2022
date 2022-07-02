@@ -819,7 +819,7 @@ private:
             }
         }
     }
-    void ls_clear(queue<LSnode> &ls) {
+    void ls_clear() {
         for (int i = (nowLS.front + 1) % nowLS.maxSize;
              i != (nowLS.rear + 1) % nowLS.maxSize; i = (i + 1) % nowLS.maxSize) {
             if (!nowLS.a[i].isload && !nowLS.a[i].ready)nowLS.a[i].isdelete = true;
@@ -835,7 +835,6 @@ private:
         LSnode node;
         if (preLS.isempty())return;
         node = preLS.top();
-//        cout << "LT "<<hex<<node.pc_<<' '<<PP[node.opt]<<' '<< node.Vj <<' ' << node.Vk<<' '<<node.Qj<<' '<<node.Qk<<' '<<node.ready << endl;
         while (node.isdelete) {
             preLS.pop();
             nowLS.pop();
@@ -853,7 +852,6 @@ private:
                             nowROB.a[node.reorder].value = u32(Memory[node.Vj]) + (u32(Memory[node.Vj + 1]) << 8) +
                                                            (u32(Memory[node.Vj + 2]) << 16) +
                                                            (u32(Memory[node.Vj + 3]) << 24);
-
                             break;
                         case LB:
                             nowROB.a[node.reorder].value = Signextend(u32(Memory[node.Vj]), 7);
@@ -900,9 +898,9 @@ private:
                 }
             }
         } else {
-//             cout << node.reorder << "#####" << " " << node.Qj << " " << node.Qk << " " << node.ready << " " << lsb_clk<<endl;
+//            cout << node.reorder << "#####" << " " << node.Qj << " " << node.Qk << " " << node.ready << " " << lsb_clk<<endl;
             if (node.Qj == -1 && node.Qk == -1 && node.ready) {
-                if(lsb_clk>=2){
+                if(lsb_clk<=-2){
                     nowLS.pop();
                     switch(node.opt){
                         case SB:
@@ -921,7 +919,7 @@ private:
                     }
                     lsb_clk=0;
                 }
-                else ++lsb_clk;
+                else --lsb_clk;
             }
         }
     }
@@ -970,7 +968,7 @@ private:
         if (preROB.isempty())return NONE;
         ROBnode node = preROB.top();
         if (node.opt == HALT)return HALT;
-        int bug=12;
+        int bug=11;
         if (node.ready) {
             // TODO BRANCH CLEAR FIXIT
             //------------------beqoff----------------//
@@ -985,7 +983,7 @@ private:
                 jump_wrong=true;
 //                cout << "JUMPWRONG" <<endl;
 //                cout <<hex<< node.pc_ << ' ' << now_register[bug] << endl;
-                 return node.opt;
+                return node.opt;
             }
             //---------------------//
             if (node.opt >= LB && node.opt <= LHU) {//isload,update rd 计算完成
@@ -1053,10 +1051,8 @@ public:
             ++clk;
             update();
             opt = run_rob();
-            if(!jump_wrong){
-                run_slbuffer();
-                run_reservation();//pc==0
-            }
+            run_slbuffer();
+            run_reservation();//pc==0
             run_issue();
         }
         std::cout << dec << (now_register[10] & 255u) << std::endl;
@@ -1065,7 +1061,9 @@ public:
     void run_issue() {//获取指令与指令分发
         if (issue_halt)return;
         if (nowROB.isfull() || rsfull() || nowLS.isfull()) {
-//            cout << nowROB.isfull() << rsfull() << nowLS.isfull() <<"######" <<endl;
+            LSnode node=preLS.top();
+//            cout <<lsb_clk<< "LT "<<hex<<node.pc_<<' '<<PP[node.opt]<<' '<< node.Vj <<' ' << node.Vk<<' '<<node.Qj<<' '<<node.Qk<<' '<<node.ready << endl;
+//            cout << nowROB.isfull() << rsfull() << nowLS.isfull()<<endl;
             return;
         }
         IDResult option = getopt();
@@ -1080,11 +1078,12 @@ public:
         for(int i = 0; i < RS_SIZE; ++i)nowRS[i].busy=preRS[i].busy=false;
         nowROB.clear();
         preROB.clear();
-        ls_clear(nowLS);
-        ls_clear(preLS);
+        ls_clear();
+//        preLS = nowLS;
         issue_halt=false;
         nowALU.opt=preALU.opt=NONE;
-        lsb_clk=0;
+        nowALU.reorder=preALU.reorder=-1;
+        if(lsb_clk>0)lsb_clk=0;
     }
 
     void run_reservation() {
