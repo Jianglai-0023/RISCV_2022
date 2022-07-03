@@ -11,8 +11,28 @@ using u8 = unsigned char;
 const int QUEUE_SIZE = 32;
 const int REG_SIZE = 32;
 const int RS_SIZE = 32;
-
-class stimulator {
+class saturating_counter{
+private:
+    u8 predict[65535];
+    const int M=65535;
+public:
+    bool jump_predict(int index0){
+        int index=index0&M;
+        if(predict[index]>=0&&predict[index]<=2)return false;
+        return true;
+    }
+    void result(int index0,bool jump){
+        int index=index0&M;
+        if(jump&&predict[index]<2)predict[index]++;
+        else if(!jump&&predict[index]>0)predict[index]--;
+    }
+    saturating_counter(){
+//        for(int i = 0; i < M; ++i)predict[i]=0;
+        memset(predict,0,sizeof(predict));
+    }
+    ~saturating_counter(){};
+}branch_predictor;
+class simulator {
 private:
     u8 Memory[1048576];
     u32 pre_register[32];
@@ -457,6 +477,7 @@ private:
 
     struct ROBnode {
         bool ready = false;
+        bool isjumped=false;
         OPT opt;
         u8 rd;
         u32 value = 0;
@@ -525,10 +546,17 @@ private:
                 } else node.Qj = pre_rename[u32(op.rs1)];
                 if (node.Qj == -1 && node.Qk == -1)node.isready = true;
             } else {
-                //-----------beqoff--------------------//
-//                issue_halt = true;
-                //----------------------------//
-                node.beq = PC+4;
+                if(branch_predictor.jump_predict(PC)){
+                    node.beq=PC+4;
+                    PC+=op.imm;
+                    nowROB.a[reorder].isjumped=true;
+                }
+                else{
+                    node.beq=PC+op.imm;
+                    PC+=4;
+                    nowROB.a[reorder].isjumped=false;
+                }
+//                node.beq = PC+4; //都预测跳转
                 if (pre_rename[u32(op.rs1)] == -1) {
                     node.Vj = pre_register[u32(op.rs1)];
                 } else if (check_ready(pre_rename[u32(op.rs1)])) {
@@ -970,19 +998,23 @@ private:
         if (node.opt == HALT)return HALT;
         int bug=11;
         if (node.ready) {
+            ++clk;
+            if(clk==200)exit(0);
             // TODO BRANCH CLEAR FIXIT
             //------------------beqoff----------------//
-            if (node.opt>=BEQ&&node.opt<=BGEU && node.value) {//符合预测
+            if (node.opt>=BEQ&&node.opt<=BGEU && node.value==node.isjumped) {//符合预测
                 nowROB.pop();
-//                cout <<hex<< node.pc_ << ' ' << now_register[bug] << endl;
+                branch_predictor.result(node.pc_,node.isjumped);
+                cout <<hex<< node.pc_<<" right "<<node.isjumped<< endl;
                 return node.opt;
-            } else if (node.opt>=BEQ&&node.opt<=BGEU && !node.value) {//不符合预测
+            } else if (node.opt>=BEQ&&node.opt<=BGEU && node.value!=node.isjumped) {//不符合预测
+                cout <<hex<< node.pc_<<" wrong "<<node.isjumped<< endl;
                 nowROB.pop();
+                branch_predictor.result(node.pc_,node.isjumped);
                 beq_faild();
                 change_pc_to=node.beqpc;
                 jump_wrong=true;
-//                cout << "JUMPWRONG" <<endl;
-//                cout <<hex<< node.pc_ << ' ' << now_register[bug] << endl;
+//                cout <<hex<< node.pc_<< endl;
                 return node.opt;
             }
             //---------------------//
@@ -990,7 +1022,7 @@ private:
                 now_register[node.rd] = node.value;
                 if (pre_rename[node.rd] == (preROB.front + 1) % preROB.maxSize)now_rename[node.rd] = -1;
                 nowROB.pop();
-//                cout <<hex<< node.pc_ << ' ' << now_register[bug] << endl;
+                cout <<hex<< node.pc_<<endl;
 //                cout << "CM "<<(preROB.front+1)%preROB.maxSize<<' '<<PP[node.opt]<<' '<<u32(node.rd) << ' '<<hex<<now_register[node.rd] <<endl;
             } else if (node.opt >= SB && node.opt <= SW) {//isstore
                 //send to lsbuffer
@@ -1003,22 +1035,23 @@ private:
                         break;
                     }
                 }
-//                cout <<hex<< node.pc_ << ' ' << now_register[bug] << endl;
+                cout <<hex<< node.pc_<<endl;
 //                cout << "CM "<<(preROB.front+1)%preROB.maxSize<<' '<<PP[node.opt]<<' '<<u32(node.rd) << ' '<<node.value <<endl;
             } else {
                 nowROB.pop();
                 now_register[node.rd] = node.value;
                 if (pre_rename[node.rd] == (preROB.front + 1) % preROB.maxSize)now_rename[node.rd] = -1;
-//                cout <<hex<< node.pc_ << ' ' << now_register[bug] << endl;
+                cout <<hex<< node.pc_<<endl;
 //                cout << "CM "<<(preROB.front+1)%preROB.maxSize<<' '<<PP[node.opt]<<' '<<u32(node.rd) << ' '<<now_register[node.rd] <<endl;
             }
+            cout << pre_register[8]<<'%'<<endl;
             return node.opt;
         }
         return ROBHALT;
     }
 
 public:
-    stimulator() {}
+    simulator() {}
 
     void parser(std::istream &Input) {
         u32 point = 0;
@@ -1048,7 +1081,6 @@ public:
     void run() {
         OPT opt = ADDI;
         while (opt != HALT){
-            ++clk;
             update();
             opt = run_rob();
             run_slbuffer();
@@ -1123,15 +1155,15 @@ public:
         preALU = nowALU;
     }
 
-    ~stimulator() {}
+    ~simulator() {}
 };
 
 //#endif
 
 int main() {
-//    freopen("data.in", "r", stdin);
-//    freopen("data.out","w",stdout);
-    stimulator cpu;
+    freopen("data.in", "r", stdin);
+    freopen("data.out","w",stdout);
+    simulator cpu;
     try {
         cpu.init(std::cin);
         cpu.run();
