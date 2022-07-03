@@ -12,13 +12,13 @@ const int QUEUE_SIZE = 32;
 const int REG_SIZE = 32;
 const int RS_SIZE = 32;
 class saturating_counter{
-private:
-    u8 predict[65535];
+public:
+    int predict[65535];
     const int M=65535;
 public:
     bool jump_predict(int index0){
         int index=index0&M;
-        if(predict[index]>=0&&predict[index]<=2)return false;
+        if(predict[index]>=0&&predict[index]<2)return false;
         return true;
     }
     void result(int index0,bool jump){
@@ -569,7 +569,6 @@ private:
                     node.Vk = nowROB.a[pre_rename[u32(op.rs2)]].value;
                 } else node.Qk = pre_rename[u32(op.rs2)];
                 if (node.Qj == -1 && node.Qk == -1)node.isready = true;
-                PC+=op.imm;//predict jump
             }
         } else if (op.opt >= LB && op.opt <= SW) {//for mem
             if (op.opt >= LB && op.opt <= LHU)node.reorder = reorder + 256;
@@ -763,8 +762,6 @@ private:
                                 break;
                         }
                     }
-//                    cout <<"SE "<< PP[opt] <<' '<<u32(preROB.a[nowALU.reorder].rd)<< ' '<< nowALU.reorder <<' '<< nowALU.value <<endl;
-//                    cout <<nowALU.value<<endl;
                     nowRS[i].busy = nowRS[i].isready = false;
                     nowRS[i].Qj = nowRS[i].Qk = -1;
                     break;
@@ -999,18 +996,21 @@ private:
         int bug=11;
         if (node.ready) {
             ++clk;
-            if(clk==200)exit(0);
+//            if(clk==200)exit(0);
             // TODO BRANCH CLEAR FIXIT
             //------------------beqoff----------------//
             if (node.opt>=BEQ&&node.opt<=BGEU && node.value==node.isjumped) {//符合预测
                 nowROB.pop();
-                branch_predictor.result(node.pc_,node.isjumped);
-                cout <<hex<< node.pc_<<" right "<<node.isjumped<< endl;
+//                cout << branch_predictor.predict[node.pc_&branch_predictor.M]<<"()()"<<endl;
+                branch_predictor.result(node.pc_,node.value);
+//                cout <<hex<< node.pc_<<" right "<<node.beqpc<<' '<<node.isjumped<< endl;
+//cout << hex << node.pc_ << endl;
+                jump_wrong=false;
                 return node.opt;
             } else if (node.opt>=BEQ&&node.opt<=BGEU && node.value!=node.isjumped) {//不符合预测
-                cout <<hex<< node.pc_<<" wrong "<<node.isjumped<< endl;
+//                cout <<hex<< node.pc_<<" wrong "<<node.beqpc<<' '<<node.isjumped<< endl;
                 nowROB.pop();
-                branch_predictor.result(node.pc_,node.isjumped);
+                branch_predictor.result(node.pc_,node.value);
                 beq_faild();
                 change_pc_to=node.beqpc;
                 jump_wrong=true;
@@ -1022,7 +1022,7 @@ private:
                 now_register[node.rd] = node.value;
                 if (pre_rename[node.rd] == (preROB.front + 1) % preROB.maxSize)now_rename[node.rd] = -1;
                 nowROB.pop();
-                cout <<hex<< node.pc_<<endl;
+//                cout <<hex<< node.pc_<<endl;
 //                cout << "CM "<<(preROB.front+1)%preROB.maxSize<<' '<<PP[node.opt]<<' '<<u32(node.rd) << ' '<<hex<<now_register[node.rd] <<endl;
             } else if (node.opt >= SB && node.opt <= SW) {//isstore
                 //send to lsbuffer
@@ -1035,16 +1035,15 @@ private:
                         break;
                     }
                 }
-                cout <<hex<< node.pc_<<endl;
+//                cout <<hex<< node.pc_<<endl;
 //                cout << "CM "<<(preROB.front+1)%preROB.maxSize<<' '<<PP[node.opt]<<' '<<u32(node.rd) << ' '<<node.value <<endl;
             } else {
                 nowROB.pop();
                 now_register[node.rd] = node.value;
                 if (pre_rename[node.rd] == (preROB.front + 1) % preROB.maxSize)now_rename[node.rd] = -1;
-                cout <<hex<< node.pc_<<endl;
+//                cout <<hex<< node.pc_<<endl;
 //                cout << "CM "<<(preROB.front+1)%preROB.maxSize<<' '<<PP[node.opt]<<' '<<u32(node.rd) << ' '<<now_register[node.rd] <<endl;
             }
-            cout << pre_register[8]<<'%'<<endl;
             return node.opt;
         }
         return ROBHALT;
@@ -1091,6 +1090,7 @@ public:
     }
 
     void run_issue() {//获取指令与指令分发
+//        cout << issue_halt << "####" << endl;
         if (issue_halt)return;
         if (nowROB.isfull() || rsfull() || nowLS.isfull()) {
             LSnode node=preLS.top();
@@ -1161,8 +1161,8 @@ public:
 //#endif
 
 int main() {
-    freopen("data.in", "r", stdin);
-    freopen("data.out","w",stdout);
+//    freopen("data.in", "r", stdin);
+//    freopen("data.out","w",stdout);
     simulator cpu;
     try {
         cpu.init(std::cin);
