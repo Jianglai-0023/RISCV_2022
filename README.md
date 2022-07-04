@@ -23,17 +23,6 @@
 |statement_test| 0.40 | 0.61 |
 |superloop| 0.13 | 0.94 |
 |tak| 0.25 | 0.77 |
-### 组合逻辑
-```
-run_rob();  
-run_slbuffer();  
-run_reservation();  
-```
-### 时序逻辑
-```
-update();
-run_issue();
-```
 
 
 
